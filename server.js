@@ -33,10 +33,10 @@ const requireAuth = (req, res, next) => {
     }
 };
 
-// --- ১. ESP32 ডাটা রিসিভ করার মূল এপিআই (POST) ---
-// মাল্টিপল পাথ রাউটিং যাতে কোনোভাবেই ৪0৪ এরর না আসে
-app.post(['/', '/api/ping'], (req, res) => {
-    console.log("[ESP32 Post Request] Incoming data bundle...");
+// --- ১. ESP32 ডাটা রিসিভ করার নির্দিষ্ট এপিআই (POST) ---
+// রুট পাথ থেকে এটিকে আলাদা রাখা হয়েছে যেন রেন্ডার হেলথ-চেকের সময় ক্র্যাশ না করে
+app.post('/api/ping', (req, res) => {
+    console.log("[ESP32 Post] Incoming data bundle...");
     const { total, free, files, admin_u, admin_p } = req.body;
     
     cloudStorage.connected = true;
@@ -61,7 +61,7 @@ app.post(['/', '/api/ping'], (req, res) => {
     if (admin_u && admin_p) {
         adminCredentials.username = admin_u;
         adminCredentials.password = admin_p;
-        console.log(`[Security Sync] Admin Locked -> User: ${admin_u}`);
+        console.log(`[Security Sync] Admin Credentials Synced Successfully`);
     }
     
     cloudStorage.lastUpdated = new Date().toLocaleTimeString();
@@ -135,7 +135,7 @@ app.get('/logout', (req, res) => {
     res.redirect('/login');
 });
 
-// --- ৫. মূল ফাইল ম্যানেজার ড্যাশবোর্ড (GET - পাসওয়ার্ড সুরক্ষিত) ---
+// --- ۵. মূল ফাইল ম্যানেজার ড্যাশবোর্ড (GET - পাসওয়ার্ড সুরক্ষিত) ---
 app.get('/', requireAuth, (req, res) => {
     
     const fileItems = cloudStorage.fileList.map(file => `
@@ -212,7 +212,7 @@ app.get('/', requireAuth, (req, res) => {
             if (localStorage.getItem('theme') === 'light') document.body.classList.add('light-theme');
             function toggleTheme() {
                 document.body.classList.toggle('light-theme');
-                localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
+                localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light-theme' : 'dark');
             }
         </script>
     </body>
