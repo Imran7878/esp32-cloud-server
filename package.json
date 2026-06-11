@@ -1,0 +1,16 @@
+{
+  "name": "esp32-cloud-server",
+  "version": "1.0.0",
+  "description": "ESP32 Secure Cloud File Manager Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2"
+  }
+}
