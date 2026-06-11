@@ -1,14 +1,14 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000; // রেন্ডার পোর্টের সাথে সামঞ্জস্যপূর্ণ
 
 // মিডলওয়্যার কনফিগারেশন
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser('esp32_cloud_secret_cookie_key')); // সিকিউর কুকি সাইন করার জন্য
+app.use(cookieParser('esp32_cloud_secret_cookie_key')); // সিকিউর কুকি সাইনিং
 
-// গ্লোবাল ড্যাশবোর্ড ও ক্রেডেনশিয়াল ক্যাশ
+// গ্লোবাল ডাটা স্টোরেজ ক্যাশ
 let cloudStorage = {
     connected: false,
     totalSpace: "0.00",
@@ -18,13 +18,13 @@ let cloudStorage = {
     lastUpdated: "Never"
 };
 
-// ডিফল্ট অ্যাডমিন ক্রেডেনশিয়াল (প্রথমবার সিঙ্ক হওয়ার আগ পর্যন্ত)
+// ডায়নামিক অ্যাডমিন ক্রেডেনশিয়াল (ESP32 থেকে সিঙ্ক হবে)
 let adminCredentials = {
     username: "admin",
-    password: "" // ESP32 সেটআপ পোর্টাল থেকে ডাটা আসার পর এটি অটো আপডেট হবে
+    password: "" 
 };
 
-// --- সিকিউরিটি মিডলওয়্যার (ইউজার লগইন অবস্থা চেক করার জন্য) ---
+// --- সিকিউরিটি মিডলওয়্যার (লগইন ভেরিফিকেশন) ---
 const requireAuth = (req, res, next) => {
     if (req.signedCookies.isLoggedIn === 'true') {
         next();
@@ -33,8 +33,10 @@ const requireAuth = (req, res, next) => {
     }
 };
 
-// --- ১. ESP32 থেকে আসা ডাটা রিসিভ করার সিকিউর POST API ---
-app.post('/api/ping', (req, res) => {
+// --- ১. ESP32 ডাটা রিসিভ করার মূল এপিআই (POST) ---
+// মাল্টিপল পাথ রাউটিং যাতে কোনোভাবেই ৪0৪ এরর না আসে
+app.post(['/', '/api/ping'], (req, res) => {
+    console.log("[ESP32 Post Request] Incoming data bundle...");
     const { total, free, files, admin_u, admin_p } = req.body;
     
     cloudStorage.connected = true;
@@ -55,22 +57,22 @@ app.post('/api/ping', (req, res) => {
         cloudStorage.usedPercentage = Math.round(((totalNum - freeNum) / totalNum) * 100);
     }
     
-    // ইএসপি৩২ এর সেটআপ পোর্টাল থেকে ইউজার ও পাসওয়ার্ড ডাটা আপডেট করা
+    // ESP32 থেকে আসা ইউজার-পাসওয়ার্ড মেমরিতে সেভ করা
     if (admin_u && admin_p) {
         adminCredentials.username = admin_u;
         adminCredentials.password = admin_p;
-        console.log(`[Security Sync] Admin Credentials Updated Sync via ESP32`);
+        console.log(`[Security Sync] Admin Locked -> User: ${admin_u}`);
     }
     
     cloudStorage.lastUpdated = new Date().toLocaleTimeString();
-    console.log(`[ESP32 Sync Received] Files Count: ${cloudStorage.fileList.length} at ${cloudStorage.lastUpdated}`);
+    console.log(`[ESP32 Sync Success] Total Files: ${cloudStorage.fileList.length} at ${cloudStorage.lastUpdated}`);
     
-    res.status(200).json({ status: "success", message: "Server database synchronized successfully" });
+    // ESP32-কে সাকসেস সিগন্যাল পাঠানো
+    res.status(200).send("OK");
 });
 
-// --- ২. লগইন ইন্টারফেস (GET /login) ---
+// --- ২. লগইন পেজ ইন্টারফেস (GET) ---
 app.get('/login', (req, res) => {
-    // ইউজার যদি অলরেডি লগইন থাকে, তাকে মেইন ড্যাশবোর্ডে পাঠিয়ে দেবে
     if (req.signedCookies.isLoggedIn === 'true') {
         return res.redirect('/');
     }
@@ -114,13 +116,12 @@ app.get('/login', (req, res) => {
     res.send(html);
 });
 
-// --- ৩. লগইন ভেরিফিকেশন অ্যাকশন (POST /login) ---
+// --- ৩. লগইন তথ্য ভেরিফিকেশন (POST) ---
 app.post('/login', (req, res) => {
     const { username, password } = req.body;
     
-    // ইউজারনেম এবং পাসওয়ার্ড ম্যাচিং চেক
     if (username === adminCredentials.username && password === adminCredentials.password) {
-        // ২৪ ঘণ্টার জন্য সিকিউর সাইনড কুকি সেশন তৈরি করা
+        // ২৪ ঘণ্টার সেশন কুকি
         res.cookie('isLoggedIn', 'true', { maxAge: 86400000, signed: true, httpOnly: true });
         res.redirect('/');
     } else {
@@ -128,22 +129,21 @@ app.post('/login', (req, res) => {
     }
 });
 
-// --- ৪. লগআউট অ্যাকশন (GET /logout) ---
+// --- ৪. লগআউট সিস্টেম (GET) ---
 app.get('/logout', (req, res) => {
     res.clearCookie('isLoggedIn');
     res.redirect('/login');
 });
 
-// --- ৫. মূল ক্লাউড ফাইল ম্যানেজার ড্যাশবোর্ড (পাসওয়ার্ড দ্বারা সুরক্ষিত - requireAuth) ---
+// --- ৫. মূল ফাইল ম্যানেজার ড্যাশবোর্ড (GET - পাসওয়ার্ড সুরক্ষিত) ---
 app.get('/', requireAuth, (req, res) => {
     
-    // প্রতিটা ফাইলের জন্য মডার্ন গ্রিড কার্ড তৈরি
     const fileItems = cloudStorage.fileList.map(file => `
         <div class="file-card">
             <div class="file-icon">📄</div>
             <div class="file-name">${file}</div>
             <div class="file-actions">
-                <button onclick="alert('Secure Link Ready: Download Action for ${file}')">Download</button>
+                <button onclick="alert('Secure action initialized for: ${file}')">Download</button>
             </div>
         </div>
     `).join('');
@@ -180,7 +180,7 @@ app.get('/', requireAuth, (req, res) => {
     </head>
     <body>
         <div class="navbar">
-            <h2>🛡️ Secure Private Cloud</h2>
+            <h2>🛡️ Private Cloud Storage</h2>
             <div class="btn-group">
                 <button class="btn-action" onclick="toggleTheme()">🌓 Theme</button>
                 <a href="/logout" class="btn-action logout-btn">🔒 Logout</a>
@@ -191,7 +191,7 @@ app.get('/', requireAuth, (req, res) => {
             <div class="storage-box">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <strong>SD Card System:</strong> 
+                        <strong>SD Card Hardware:</strong> 
                         <span class="status-badge">${cloudStorage.connected ? 'Connected' : 'Disconnected'}</span>
                     </div>
                     <div style="font-size: 14px; color: gray;">Last Synced: ${cloudStorage.lastUpdated}</div>
@@ -202,7 +202,7 @@ app.get('/', requireAuth, (req, res) => {
                 </div>
             </div>
             
-            <h3>🔒 Your Private Files</h3>
+            <h3>🔒 Synchronized Files</h3>
             <div class="file-grid">
                 ${cloudStorage.fileList.length === 0 ? '<p style="grid-column: 1/-1; text-align:center; color:gray; padding: 20px;">No files synched yet. Ensure your ESP32 is powered on and configured.</p>' : fileItems}
             </div>
@@ -221,7 +221,7 @@ app.get('/', requireAuth, (req, res) => {
     res.send(html);
 });
 
-// সার্ভার লিসেনিং পোর্ট
+// সার্ভার স্টার্ট
 app.listen(PORT, () => {
-    console.log(`[Secure Server] Active and running on port ${PORT}`);
+    console.log(`[Server] Running smoothly on port ${PORT}`);
 });
